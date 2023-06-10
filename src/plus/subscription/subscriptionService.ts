@@ -565,36 +565,36 @@ export class SubscriptionService implements Disposable {
 		const scope = getLogScope();
 
 		try {
-			const checkInData = {
-				id: session.account.id,
-				platform: getPlatform(),
-				gitlensVersion: this.container.version,
-				machineId: env.machineId,
-				sessionId: env.sessionId,
-				vscodeEdition: env.appName,
-				vscodeHost: env.appHost,
-				vscodeVersion: codeVersion,
-				previewStartedOn: this._subscription.previewTrial?.startedOn,
-				previewExpiresOn: this._subscription.previewTrial?.expiresOn,
-			};
+// 			const checkInData = {
+// 				id: session.account.id,
+// 				platform: getPlatform(),
+// 				gitlensVersion: this.container.version,
+// 				machineId: env.machineId,
+// 				sessionId: env.sessionId,
+// 				vscodeEdition: env.appName,
+// 				vscodeHost: env.appHost,
+// 				vscodeVersion: codeVersion,
+// 				previewStartedOn: this._subscription.previewTrial?.startedOn,
+// 				previewExpiresOn: this._subscription.previewTrial?.expiresOn,
+// 			};
 
-			const rsp = await fetch(Uri.joinPath(this.baseApiUri, 'gitlens/checkin').toString(), {
-				method: 'POST',
-				agent: getProxyAgent(),
-				headers: {
-					Authorization: `Bearer ${session.accessToken}`,
-					'User-Agent': userAgent,
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify(checkInData),
-			});
+// 			const rsp = await fetch(Uri.joinPath(this.baseApiUri, 'gitlens/checkin').toString(), {
+// 				method: 'POST',
+// 				agent: getProxyAgent(),
+// 				headers: {
+// 					Authorization: `Bearer ${session.accessToken}`,
+// 					'User-Agent': userAgent,
+// 					'Content-Type': 'application/json',
+// 				},
+// 				body: JSON.stringify(checkInData),
+// 			});
 
-			if (!rsp.ok) {
-				throw new AccountValidationError('Unable to validate account', undefined, rsp.status, rsp.statusText);
-			}
+// 			if (!rsp.ok) {
+// 				throw new AccountValidationError('Unable to validate account', undefined, rsp.status, rsp.statusText);
+// 			}
 
-			const data: GKLicenseInfo = await rsp.json();
-			this.validateSubscription(data);
+// 			const data: GKLicenseInfo = await rsp.json();
+// 			this.validateSubscription(data);
 			this._lastCheckInDate = new Date();
 		} catch (ex) {
 			Logger.error(ex, scope);
@@ -778,12 +778,12 @@ export class SubscriptionService implements Disposable {
 			Logger.error(ex, scope);
 			debugger;
 
-			this.container.telemetry.sendEvent('account/validation/failed', {
-				'account.id': session.account.id,
-				exception: String(ex),
-				code: ex.original?.code,
-				statusCode: ex.statusCode,
-			});
+// 			this.container.telemetry.sendEvent('account/validation/failed', {
+// 				'account.id': session.account.id,
+// 				exception: String(ex),
+// 				code: ex.original?.code,
+// 				statusCode: ex.statusCode,
+// 			});
 
 			Logger.debug(scope, `Account validation failed (${ex.statusCode ?? ex.original?.code})`);
 
@@ -920,9 +920,38 @@ export class SubscriptionService implements Disposable {
 	}
 
 	private getStoredSubscription(): Subscription | undefined {
-		const storedSubscription = this.container.storage.get('premium:subscription');
+// 		const storedSubscription = this.container.storage.get('premium:subscription');
 
-		const subscription = storedSubscription?.data;
+// 		const subscription = storedSubscription?.data;
+		
+		// ----
+		if (this._subscription == null) {
+			this._subscription = {
+				plan: {
+					actual: getSubscriptionPlan(SubscriptionPlanId.Free, false, undefined),
+					effective: getSubscriptionPlan(SubscriptionPlanId.Free, false, undefined),
+				},
+				account: undefined,
+				state: SubscriptionState.Free,
+			};
+		}
+		
+		const startedOn = new Date();
+		let expiresOn = createFromDateDelta(startedOn, { days: 30 });
+
+		this.changeSubscription({
+			...this._subscription,
+			plan: {
+				...this._subscription.plan,
+				effective: getSubscriptionPlan(SubscriptionPlanId.Pro, false, undefined, startedOn, expiresOn),
+			},
+			previewTrial: previewTrial = {
+				startedOn: startedOn.toISOString(),
+				expiresOn: expiresOn.toISOString(),
+			},
+		});
+		// ----
+
 		if (subscription != null) {
 			// Migrate the plan names to the latest names
 			(subscription.plan.actual as Mutable<Subscription['plan']['actual']>).name = getSubscriptionPlanName(
