@@ -595,6 +595,7 @@ export class SubscriptionService implements Disposable {
 
 // 			const data: GKLicenseInfo = await rsp.json();
 // 			this.validateSubscription(data);
+			await this.ensureSession(false);
 			this._lastCheckInDate = new Date();
 		} catch (ex) {
 			Logger.error(ex, scope);
@@ -937,7 +938,7 @@ export class SubscriptionService implements Disposable {
 		}
 		
 		const startedOn = new Date();
-		let expiresOn = createFromDateDelta(startedOn, { days: 30 });
+		const expiresOn = createFromDateDelta(startedOn, { days: 30 });
 
 		this.changeSubscription({
 			...this._subscription,
@@ -945,7 +946,7 @@ export class SubscriptionService implements Disposable {
 				...this._subscription.plan,
 				effective: getSubscriptionPlan(SubscriptionPlanId.Pro, false, undefined, startedOn, expiresOn),
 			},
-			previewTrial: previewTrial = {
+			previewTrial: {
 				startedOn: startedOn.toISOString(),
 				expiresOn: expiresOn.toISOString(),
 			},
