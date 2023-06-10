@@ -950,6 +950,8 @@ export class SubscriptionService implements Disposable {
 				expiresOn: expiresOn.toISOString(),
 			},
 		});
+		
+		const subscription = this._subscription;
 		// ----
 
 		if (subscription != null) {
