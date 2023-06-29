@@ -6,7 +6,8 @@ import { configuration } from '../../system/configuration';
 import { gate } from '../../system/decorators/gate';
 import { debug } from '../../system/decorators/log';
 import { map } from '../../system/iterable';
-import { cancellable, PromiseCancelledError } from '../../system/promise';
+import type { Deferred } from '../../system/promise';
+import { cancellable, defer, PromiseCancelledError } from '../../system/promise';
 import type { ViewsWithCommits } from '../viewBase';
 import { AutolinkedItemsNode } from './autolinkedItemsNode';
 import { CommitNode } from './commitNode';
@@ -16,7 +17,7 @@ import type { FilesQueryResults } from './resultsFilesNode';
 import { ResultsFilesNode } from './resultsFilesNode';
 import { StashNode } from './stashNode';
 import type { PageableViewNode } from './viewNode';
-import { ContextValues, ViewNode } from './viewNode';
+import { ContextValues, getViewNodeId, ViewNode } from './viewNode';
 
 export interface CommitsQueryResults {
 	readonly label: string;
@@ -29,6 +30,8 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 	extends ViewNode<View>
 	implements PageableViewNode
 {
+	limit: number | undefined;
+
 	constructor(
 		view: View,
 		protected override readonly parent: ViewNode,
@@ -45,19 +48,25 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 				query: () => Promise<FilesQueryResults>;
 			};
 		},
-		private readonly _options: {
-			id?: string;
-			description?: string;
-			expand?: boolean;
-		} = {},
+		private readonly _options: { description?: string; expand?: boolean } = undefined!,
 		splatted?: boolean,
 	) {
 		super(GitUri.fromRepoPath(repoPath), view, parent);
 
+		if (_results.direction != null) {
+			this.updateContext({ branchStatusUpstreamType: _results.direction });
+		}
+		this._uniqueId = getViewNodeId('results-commits', this.context);
+		this.limit = this.view.getNodeLastKnownLimit(this);
+
+		this._options = { expand: true, ..._options };
 		if (splatted != null) {
 			this.splatted = splatted;
 		}
-		this._options = { expand: true, ..._options };
+	}
+
+	override get id(): string {
+		return this._uniqueId;
 	}
 
 	get ref1(): string | undefined {
@@ -68,11 +77,12 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 		return this._results.comparison?.ref2;
 	}
 
-	override get id(): string {
-		return `${this.parent.id}:results:commits${this._options.id ? `:${this._options.id}` : ''}`;
-	}
+	private _onChildrenCompleted: Deferred<void> | undefined;
 
 	async getChildren(): Promise<ViewNode[]> {
+		this._onChildrenCompleted?.cancel();
+		this._onChildrenCompleted = defer<void>();
+
 		const { log } = await this.getCommitsQueryResults();
 		if (log == null) return [];
 
@@ -122,6 +132,7 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 			children.push(new LoadMoreNode(this.view, this, children[children.length - 1]));
 		}
 
+		this._onChildrenCompleted.fulfill();
 		return children;
 	}
 
@@ -144,7 +155,14 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 						: TreeItemCollapsibleState.Collapsed;
 			} catch (ex) {
 				if (ex instanceof PromiseCancelledError) {
-					ex.promise.then(() => this.triggerChange(false));
+					setTimeout(async () => {
+						void (await ex.promise);
+						try {
+							await this._onChildrenCompleted?.promise;
+						} catch {}
+
+						setTimeout(() => void this.triggerChange(false), 1);
+					}, 1);
 				}
 
 				// Need to use Collapsed before we have results or the item won't show up in the view until the children are awaited
@@ -167,24 +185,34 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 	override refresh(reset: boolean = false) {
 		if (reset) {
 			this._commitsQueryResults = undefined;
+			this._commitsQueryResultsPromise = undefined;
 			void this.getCommitsQueryResults();
 		}
 	}
 
-	private _commitsQueryResults: Promise<CommitsQueryResults> | undefined;
+	private _commitsQueryResultsPromise: Promise<CommitsQueryResults> | undefined;
 	private async getCommitsQueryResults() {
-		if (this._commitsQueryResults == null) {
-			this._commitsQueryResults = this._results.query(this.limit ?? configuration.get('advanced.maxSearchItems'));
-			const results = await this._commitsQueryResults;
+		if (this._commitsQueryResultsPromise == null) {
+			this._commitsQueryResultsPromise = this._results.query(
+				this.limit ?? configuration.get('advanced.maxSearchItems'),
+			);
+			const results = await this._commitsQueryResultsPromise;
+			this._commitsQueryResults = results;
+
 			this._hasMore = results.hasMore;
 
 			if (this._results.deferred) {
 				this._results.deferred = false;
 
-				void this.triggerChange(false);
+				// void this.triggerChange(false);
 			}
 		}
 
+		return this._commitsQueryResultsPromise;
+	}
+
+	private _commitsQueryResults: CommitsQueryResults | undefined;
+	private maybeGetCommitsQueryResults(): CommitsQueryResults | undefined {
 		return this._commitsQueryResults;
 	}
 
@@ -194,7 +222,6 @@ export class ResultsCommitsNode<View extends ViewsWithCommits = ViewsWithCommits
 	}
 
 	private _expandAutolinks: boolean = false;
-	limit: number | undefined = this.view.getNodeLastKnownLimit(this);
 	async loadMore(limit?: number, context?: Record<string, unknown>): Promise<void> {
 		const results = await this.getCommitsQueryResults();
 		if (results == null || !results.hasMore) return;
