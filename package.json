@@ -2,7 +2,7 @@
 	"name": "gitlens",
 	"displayName": "GitLens — Git supercharged",
 	"description": "Supercharge Git within VS Code — Visualize code authorship at a glance via Git blame annotations and CodeLens, seamlessly navigate and explore Git repositories, gain valuable insights via rich visualizations and powerful comparison commands, and so much more",
-	"version": "14.8.0",
+	"version": "99.14.8",
 	"engines": {
 		"vscode": "^1.82.0"
 	},
@@ -4136,7 +4136,7 @@
 					},
 					"gitlens.telemetry.enabled": {
 						"type": "boolean",
-						"default": true,
+						"default": false,
 						"markdownDescription": "Specifies whether to allow GitLens to send product usage telemetry.\n\n_**Note:** For GitLens to send any telemetry BOTH this setting and VS Code telemetry must be enabled. If either one is disabled no telemetry will be sent._",
 						"scope": "window",
 						"order": 1

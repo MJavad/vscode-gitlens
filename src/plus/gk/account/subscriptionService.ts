@@ -526,36 +526,11 @@ export class SubscriptionService implements Disposable {
 	private _lastValidatedDate: Date | undefined;
 
 	@debug<SubscriptionService['checkInAndValidate']>({ args: { 0: s => s?.account?.label } })
-	private async checkInAndValidate(
+	private checkInAndValidate(
 		session: AuthenticationSession,
 		options?: { force?: boolean; showSlowProgress?: boolean },
 	): Promise<GKCheckInResponse | undefined> {
-		const scope = getLogScope();
-
-		// Only check in if we haven't in the last 12 hours
-		if (
-			!options?.force &&
-			this._lastValidatedDate != null &&
-			Date.now() - this._lastValidatedDate.getTime() < 12 * 60 * 60 * 1000 &&
-			!isSubscriptionExpired(this._subscription)
-		) {
-			setLogScopeExit(scope, ` (${fromNow(this._lastValidatedDate.getTime(), true)})...`, 'skipped');
-			return;
-		}
-
-		const validating = this.checkInAndValidateCore(session);
-		if (!options?.showSlowProgress) return validating;
-
-		// Show progress if we are waiting too long
-		const result = await pauseOnCancelOrTimeout(validating, undefined, 3000);
-		if (result.paused) {
-			return window.withProgress(
-				{ location: ProgressLocation.Notification, title: 'Validating your GitKraken account...' },
-				() => result.value,
-			);
-		}
-
-		return result.value;
+		return Promise.resolve(undefined);
 	}
 
 	@gate<SubscriptionService['checkInAndValidateCore']>(s => s.account.id)
@@ -638,23 +613,7 @@ export class SubscriptionService implements Disposable {
 	}
 
 	private async loadStoredCheckInData(userId: string): Promise<GKCheckInResponse | undefined> {
-		const scope = getLogScope();
-		const storedCheckIn = this.container.storage.get(`gk:${userId}:checkin`);
-		// If more than a day old, ignore
-		if (storedCheckIn?.timestamp == null || Date.now() - storedCheckIn.timestamp > 24 * 60 * 60 * 1000) {
-			// Attempt a check-in to see if we can get a new one
-			const session = await this.getAuthenticationSession(false);
-			if (session == null) return undefined;
-
-			try {
-				return await this.checkInAndValidate(session, { force: true });
-			} catch (ex) {
-				Logger.error(ex, scope);
-				return undefined;
-			}
-		}
-
-		return storedCheckIn?.data;
+		return Promise.resolve(undefined);
 	}
 
 	@debug()
@@ -919,26 +878,27 @@ export class SubscriptionService implements Disposable {
 	}
 
 	private getStoredSubscription(): Subscription | undefined {
-		const storedSubscription = this.container.storage.get('premium:subscription');
+		const startedOn = new Date();
 
-		let lastValidatedAt: number | undefined;
-		let subscription: Subscription | undefined;
-		if (storedSubscription?.data != null) {
-			({ lastValidatedAt, ...subscription } = storedSubscription.data);
-			this._lastValidatedDate = lastValidatedAt != null ? new Date(lastValidatedAt) : undefined;
-		} else {
-			subscription = undefined;
-		}
+		let expiresOn = new Date(startedOn);
+		// Normalize the date to just before midnight on the same day
+		expiresOn.setHours(23, 59, 59, 999);
+		expiresOn = createFromDateDelta(expiresOn, { days: 3 });
 
-		if (subscription != null) {
-			// Migrate the plan names to the latest names
-			(subscription.plan.actual as Mutable<Subscription['plan']['actual']>).name = getSubscriptionPlanName(
-				subscription.plan.actual.id,
-			);
-			(subscription.plan.effective as Mutable<Subscription['plan']['effective']>).name = getSubscriptionPlanName(
-				subscription.plan.effective.id,
-			);
-		}
+		const previewTrial = {
+			startedOn: startedOn.toISOString(),
+			expiresOn: expiresOn.toISOString(),
+		};
+
+		const subscription = {
+			plan: {
+				actual: getSubscriptionPlan(SubscriptionPlanId.Free, false, 0, undefined),
+				effective: getSubscriptionPlan(SubscriptionPlanId.Free, false, 0, undefined),
+			},
+			account: undefined,
+			state: SubscriptionState.Free,
+			previewTrial: previewTrial,
+		};
 
 		return subscription;
 	}
